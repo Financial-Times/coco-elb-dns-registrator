@@ -3,17 +3,18 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/elb"
 	etcdClient "github.com/coreos/etcd/client"
 	etcdContext "golang.org/x/net/context"
-	"log"
-	"net/http"
-	"os"
-	"strings"
-	"time"
 )
 
 const (
@@ -26,6 +27,7 @@ var (
 
 type conf struct {
 	env             string
+	regionTag       string
 	konsAPIKey      string
 	konsDNSEndPoint string
 	elbName         string
@@ -64,6 +66,7 @@ func config() *conf {
 	kapi := etcdClient.NewKeysAPI(etcd)
 
 	set(kapi, &c.env, "/ft/config/environment_tag", &err)
+	set(kapi, &c.regionTag, "/ft/config/region_tag", &err)
 	set(kapi, &c.konsAPIKey, "/ft/_credentials/konstructor/api-key", &err)
 	set(kapi, &c.elbName, "/ft/_credentials/elb_name", &err)
 	set(kapi, &c.awsAccessKey, "/ft/_credentials/aws/aws_access_key_id", &err)
@@ -109,7 +112,7 @@ func elbDNSName(c *conf) {
 }
 
 func destroyDNS(c *conf, hc *http.Client) error {
-	url := fmt.Sprintf("%sdelete?zone=ft.com&name=%s-up", c.konsDNSEndPoint, c.env)
+	url := fmt.Sprintf("%sdelete?zone=ft.com&name=%s-%s-up", c.konsDNSEndPoint, c.env, c.regionTag)
 	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
 		return err
@@ -126,7 +129,7 @@ func destroyDNS(c *conf, hc *http.Client) error {
 }
 
 func createDNS(c *conf, hc *http.Client) error {
-	url := fmt.Sprintf("%screate?zone=ft.com&name=%s-up&rdata=%s&ttl=600", c.konsDNSEndPoint, c.env, c.elbName)
+	url := fmt.Sprintf("%screate?zone=ft.com&name=%s-%s-up&rdata=%s&ttl=600", c.konsDNSEndPoint, c.env, c.regionTag, c.elbName)
 	req, err := http.NewRequest("POST", url, nil)
 	if err != nil {
 		return err
