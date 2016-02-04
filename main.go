@@ -14,6 +14,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"io/ioutil"
 )
 
 const (
@@ -22,10 +23,10 @@ const (
 
 var (
 	etcdPeers = flag.String("etcdPeers", "", "Comma-separated list of addresses of etcd endpoints to connect to")
+	domains = flag.String("domains", "", "Comma-separated list of domains to be registered")
 )
 
 type conf struct {
-	env             string
 	konsAPIKey      string
 	konsDNSEndPoint string
 	elbName         string
@@ -49,7 +50,7 @@ func set(kapi etcdClient.KeysAPI, s *string, keyName string, e *error) {
 func config() *conf {
 	var (
 		err error
-		c   conf
+		c conf
 	)
 
 	cfg := etcdClient.Config{
@@ -63,7 +64,6 @@ func config() *conf {
 	}
 	kapi := etcdClient.NewKeysAPI(etcd)
 
-	set(kapi, &c.env, "/ft/config/environment_tag", &err)
 	set(kapi, &c.konsAPIKey, "/ft/_credentials/konstructor/api-key", &err)
 	set(kapi, &c.elbName, "/ft/_credentials/elb_name", &err)
 	set(kapi, &c.awsAccessKey, "/ft/_credentials/aws/aws_access_key_id", &err)
@@ -108,8 +108,8 @@ func elbDNSName(c *conf) {
 	c.elbName = *resp.LoadBalancerDescriptions[0].DNSName
 }
 
-func destroyDNS(c *conf, hc *http.Client) error {
-	url := fmt.Sprintf("%sdelete?zone=ft.com&name=%s-up", c.konsDNSEndPoint, c.env)
+func destroyDNS(c *conf, domain string, hc *http.Client) error {
+	url := fmt.Sprintf("%sdelete?zone=ft.com&name=%s", c.konsDNSEndPoint, domain)
 	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
 		return err
@@ -118,15 +118,26 @@ func destroyDNS(c *conf, hc *http.Client) error {
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", fmt.Sprintf("Basic %s", c.konsAPIKey))
 
-	_, err = hc.Do(req)
+	response, err := hc.Do(req)
 	if err != nil {
 		return err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != 200 {
+		// if status is not 200, log it, but do not consider it as a service failure
+		data, err := ioutil.ReadAll(response.Body)
+		message := "Response message could not be obtained"
+		if err != nil {
+			message = string(data)
+		}
+		log.Printf("Destroying domain [%v] failed. Response status: [%v], message: [%v]", domain, response.StatusCode, message)
 	}
 	return nil
 }
 
-func createDNS(c *conf, hc *http.Client) error {
-	url := fmt.Sprintf("%screate?zone=ft.com&name=%s-up&rdata=%s&ttl=600", c.konsDNSEndPoint, c.env, c.elbName)
+func createDNS(c *conf, domain string, hc *http.Client) error {
+	url := fmt.Sprintf("%screate?zone=ft.com&name=%s&rdata=%s&ttl=600", c.konsDNSEndPoint, domain, c.elbName)
 	req, err := http.NewRequest("POST", url, nil)
 	if err != nil {
 		return err
@@ -135,9 +146,20 @@ func createDNS(c *conf, hc *http.Client) error {
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Authorization", fmt.Sprintf("Basic %s", c.konsAPIKey))
 
-	_, err = hc.Do(req)
+	response, err := hc.Do(req)
 	if err != nil {
 		return err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != 200 {
+		// if status is not 200, log it, but do not consider it as a service failure
+		data, err := ioutil.ReadAll(response.Body)
+		message := "Response message could not be obtained"
+		if err != nil {
+			message = string(data)
+		}
+		log.Printf("Creating domain [%v] failed. Response status: [%v], message: [%v]", domain, response.StatusCode, message)
 	}
 	return nil
 }
@@ -149,13 +171,17 @@ func main() {
 
 	elbDNSName(c)
 
-	err := destroyDNS(c, hc)
-	if err != nil {
-		log.Fatal(err)
-	}
+	domainsToRegister := strings.Split(*domains, ",")
 
-	err = createDNS(c, hc)
-	if err != nil {
-		log.Fatal(err)
+	for _, domain := range domainsToRegister {
+		err := destroyDNS(c, domain, hc)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		err = createDNS(c, domain, hc)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 }
