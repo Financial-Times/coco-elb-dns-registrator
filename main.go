@@ -128,7 +128,7 @@ func destroyDNS(c *conf, domain string, hc *http.Client) error {
 		// if status is not 200, log it, but do not consider it as a service failure
 		data, err := ioutil.ReadAll(response.Body)
 		message := "Response message could not be obtained"
-		if err != nil {
+		if err == nil {
 			message = string(data)
 		}
 		log.Printf("Destroying domain [%v] failed. Response status: [%v], message: [%v]", domain, response.StatusCode, message)
@@ -156,7 +156,7 @@ func createDNS(c *conf, domain string, hc *http.Client) error {
 		// if status is not 200, log it, but do not consider it as a service failure
 		data, err := ioutil.ReadAll(response.Body)
 		message := "Response message could not be obtained"
-		if err != nil {
+		if err == nil {
 			message = string(data)
 		}
 		log.Printf("Creating domain [%v] failed. Response status: [%v], message: [%v]", domain, response.StatusCode, message)
