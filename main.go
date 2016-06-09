@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -9,21 +8,21 @@ import (
 	"github.com/aws/aws-sdk-go/service/elb"
 	etcdClient "github.com/coreos/etcd/client"
 	etcdContext "golang.org/x/net/context"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 	"time"
-	"io/ioutil"
 )
 
 const (
-	konsDNSEndPoint = "https://konstructor.ft.com/v1/dns/"
+	konsDNSEndPoint = "https://dns-api.in.ft.com/v2"
 )
 
 var (
-	etcdPeers = flag.String("etcdPeers", "", "Comma-separated list of addresses of etcd endpoints to connect to")
-	domains = flag.String("domains", "", "Comma-separated list of domains to be registered")
+	etcdPeers = os.Getenv("ETCD_PEERS")
+	domains   = os.Getenv("DOMAINS")
 )
 
 type conf struct {
@@ -50,11 +49,11 @@ func set(kapi etcdClient.KeysAPI, s *string, keyName string, e *error) {
 func config() *conf {
 	var (
 		err error
-		c conf
+		c   conf
 	)
 
 	cfg := etcdClient.Config{
-		Endpoints:               strings.Split(*etcdPeers, ","),
+		Endpoints:               strings.Split(etcdPeers, ","),
 		HeaderTimeoutPerRequest: 10 * time.Second,
 	}
 
@@ -109,14 +108,14 @@ func elbDNSName(c *conf) {
 }
 
 func destroyDNS(c *conf, domain string, hc *http.Client) error {
-	url := fmt.Sprintf("%sdelete?zone=ft.com&name=%s", c.konsDNSEndPoint, domain)
-	req, err := http.NewRequest("DELETE", url, nil)
+	body := fmt.Sprintf("{\"zone\": \"ft.com\", \"name\": \"%s\"}", domain)
+	req, err := http.NewRequest("DELETE", c.konsDNSEndPoint, strings.NewReader(body))
 	if err != nil {
 		return err
 	}
-	req.Header.Add("Content-Length", "0")
+	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Accept", "application/json")
-	req.Header.Add("Authorization", fmt.Sprintf("Basic %s", c.konsAPIKey))
+	req.Header.Add("x-api-key", c.konsAPIKey)
 
 	response, err := hc.Do(req)
 	if err != nil {
@@ -137,14 +136,15 @@ func destroyDNS(c *conf, domain string, hc *http.Client) error {
 }
 
 func createDNS(c *conf, domain string, hc *http.Client) error {
-	url := fmt.Sprintf("%screate?zone=ft.com&name=%s&rdata=%s&ttl=600", c.konsDNSEndPoint, domain, c.elbName)
-	req, err := http.NewRequest("POST", url, nil)
+	body := fmt.Sprintf("{\"zone\": \"ft.com\", \"name\": \"%s\",\"rdata\": \"%s\",\"ttl\": \"600\"}", domain, c.elbName)
+	req, err := http.NewRequest("POST", c.konsDNSEndPoint, strings.NewReader(body))
 	if err != nil {
 		return err
 	}
-	req.Header.Add("Content-Length", "0")
+
+	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Accept", "application/json")
-	req.Header.Add("Authorization", fmt.Sprintf("Basic %s", c.konsAPIKey))
+	req.Header.Add("x-api-key", c.konsAPIKey)
 
 	response, err := hc.Do(req)
 	if err != nil {
@@ -165,13 +165,12 @@ func createDNS(c *conf, domain string, hc *http.Client) error {
 }
 
 func main() {
-	flag.Parse()
 	c := config()
 	hc := &http.Client{}
 
 	elbDNSName(c)
 
-	domainsToRegister := strings.Split(*domains, ",")
+	domainsToRegister := strings.Split(domains, ",")
 
 	for _, domain := range domainsToRegister {
 		err := destroyDNS(c, domain, hc)
