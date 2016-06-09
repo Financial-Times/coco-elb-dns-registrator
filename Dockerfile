@@ -14,5 +14,5 @@ RUN apk --update add go git\
   && apk del go git \
   && rm -rf $GOPATH /var/cache/apk/*
 
-CMD /coco-elb-dns-registrator -etcdPeers=$ETCD_PEERS -domains=$DOMAINS
+CMD ["/coco-elb-dns-registrator"]
 
