@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	konsDNSEndPoint = "https://dns-api-t.in.ft.com/v2"
+	konsDNSEndPoint = "https://dns-api.in.ft.com/v2"
 )
 
 var (
