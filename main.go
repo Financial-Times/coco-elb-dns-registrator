@@ -136,7 +136,7 @@ func destroyDNS(c *conf, domain string, hc *http.Client) error {
 }
 
 func createDNS(c *conf, domain string, hc *http.Client) error {
-	body := fmt.Sprintf("{\"zone\": \"ft.com\", \"name\": \"%s\",\"rdata\": \"%s\",\"ttl\": \"14400\"}", domain, c.elbName)
+	body := fmt.Sprintf("{\"zone\": \"ft.com\", \"name\": \"%s\",\"rdata\": \"%s\",\"ttl\": \"600\"}", domain, c.elbName)
 	req, err := http.NewRequest("POST", c.konsDNSEndPoint, strings.NewReader(body))
 	if err != nil {
 		return err
