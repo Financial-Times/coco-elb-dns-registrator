@@ -6,24 +6,96 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/elb"
-	etcdClient "github.com/coreos/etcd/client"
-	etcdContext "golang.org/x/net/context"
+	"github.com/jawher/mow.cli"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 )
 
-const (
-	konsDNSEndPoint = "https://dns-api.in.ft.com/v2"
-)
+func main() {
+	app := cli.App("elb dns registrator", "Registers elb cname to *-up.ft.com cnames in dyn using konstructor")
 
-var (
-	etcdPeers = os.Getenv("ETCD_PEERS")
-	domains   = os.Getenv("DOMAINS")
-)
+	domains := app.String(cli.StringOpt{
+		Name:   "domains",
+		Desc:   "comma separated *-up domains",
+		EnvVar: "DOMAINS",
+	})
+	konstructorBaseUrl := app.String(cli.StringOpt{
+		Name:   "konstructor-base-url",
+		Desc:   "konstructor base url: https://dns-api.in.ft.com/v2",
+		EnvVar: "KONSTRUCTOR_BASE_URL",
+		Value:  "https://dns-api.in.ft.com/v2",
+	})
+	konstructorApiKey := app.String(cli.StringOpt{
+		Name:   "konstructor-api-key",
+		Desc:   "konstructor api key",
+		EnvVar: "KONSTRUCTOR_API_KEY",
+	})
+	elbName := app.String(cli.StringOpt{
+		Name:   "elb-name",
+		Desc:   "elb cname",
+		EnvVar: "ELB_NAME",
+	})
+	awsRegion := app.String(cli.StringOpt{
+		Name:   "aws-region",
+		Desc:   "aws region",
+		EnvVar: "AWS_REGION",
+	})
+	awsAccessKeyID := app.String(cli.StringOpt{
+		Name:   "aws_access_key_id",
+		Desc:   "aws access key id",
+		EnvVar: "AWS_ACCESS_KEY_ID",
+	})
+	awsSecretAccessKey := app.String(cli.StringOpt{
+		Name:   "aws_secret_access_key",
+		Desc:   "aws secret access key",
+		EnvVar: "AWS_SECRET_ACCESS_KEY",
+	})
+
+	app.Action = func() {
+		c := &conf{
+			konsAPIKey:      *konstructorApiKey,
+			konsDNSEndPoint: *konstructorBaseUrl,
+			elbName:         *elbName,
+			awsAccessKey:    *awsAccessKeyID,
+			awsSecretKey:    *awsSecretAccessKey,
+			awsRegion:       *awsRegion,
+		}
+		httpClient := &http.Client{
+			Transport: &http.Transport{
+				MaxIdleConnsPerHost: 128,
+				Dial: (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).Dial,
+			},
+		}
+
+		elbCNAME := elbDNSName(c)
+		domainsToRegister := strings.Split(*domains, ",")
+
+		for _, domain := range domainsToRegister {
+			err := destroyDNS(c, domain, httpClient)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			err = createDNS(c, elbCNAME, domain, httpClient)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+	}
+
+	err := app.Run(os.Args)
+	if err != nil {
+		log.Fatalf("[%v]", err)
+	}
+}
 
 type conf struct {
 	konsAPIKey      string
@@ -34,51 +106,7 @@ type conf struct {
 	awsRegion       string
 }
 
-func set(kapi etcdClient.KeysAPI, s *string, keyName string, e *error) {
-	var resp *etcdClient.Response
-	if *e != nil {
-		return
-	}
-	resp, *e = kapi.Get(etcdContext.Background(), keyName, nil)
-	if *e != nil {
-		return
-	}
-	*s = resp.Node.Value
-}
-
-func config() *conf {
-	var (
-		err error
-		c   conf
-	)
-
-	cfg := etcdClient.Config{
-		Endpoints:               strings.Split(etcdPeers, ","),
-		HeaderTimeoutPerRequest: 10 * time.Second,
-	}
-
-	etcd, err := etcdClient.New(cfg)
-	if err != nil {
-		log.Fatal(err)
-	}
-	kapi := etcdClient.NewKeysAPI(etcd)
-
-	set(kapi, &c.konsAPIKey, "/ft/_credentials/konstructor/api-key", &err)
-	set(kapi, &c.elbName, "/ft/_credentials/elb_name", &err)
-	set(kapi, &c.awsAccessKey, "/ft/_credentials/aws/aws_access_key_id", &err)
-	set(kapi, &c.awsSecretKey, "/ft/_credentials/aws/aws_secret_access_key", &err)
-	set(kapi, &c.awsRegion, "/ft/config/aws_region", &err)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	c.konsDNSEndPoint = konsDNSEndPoint
-
-	return &c
-}
-
-func elbDNSName(c *conf) {
+func elbDNSName(c *conf) string {
 	//weirdness around how aws handles credentials
 	os.Setenv("AWS_ACCESS_KEY_ID", c.awsAccessKey)
 	os.Setenv("AWS_SECRET_ACCESS_KEY", c.awsSecretKey)
@@ -104,7 +132,7 @@ func elbDNSName(c *conf) {
 		log.Fatal(err)
 	}
 
-	c.elbName = *resp.LoadBalancerDescriptions[0].DNSName
+	return *resp.LoadBalancerDescriptions[0].DNSName
 }
 
 func destroyDNS(c *conf, domain string, hc *http.Client) error {
@@ -135,8 +163,8 @@ func destroyDNS(c *conf, domain string, hc *http.Client) error {
 	return nil
 }
 
-func createDNS(c *conf, domain string, hc *http.Client) error {
-	body := fmt.Sprintf("{\"zone\": \"ft.com\", \"name\": \"%s\",\"rdata\": \"%s\",\"ttl\": \"600\"}", domain, c.elbName)
+func createDNS(c *conf, elbCNAME string, domain string, hc *http.Client) error {
+	body := fmt.Sprintf("{\"zone\": \"ft.com\", \"name\": \"%s\",\"rdata\": \"%s\",\"ttl\": \"600\"}", domain, elbCNAME)
 	req, err := http.NewRequest("POST", c.konsDNSEndPoint, strings.NewReader(body))
 	if err != nil {
 		return err
@@ -162,25 +190,4 @@ func createDNS(c *conf, domain string, hc *http.Client) error {
 		log.Printf("Creating domain [%v] failed. Response status: [%v], message: [%v]", domain, response.StatusCode, message)
 	}
 	return nil
-}
-
-func main() {
-	c := config()
-	hc := &http.Client{}
-
-	elbDNSName(c)
-
-	domainsToRegister := strings.Split(domains, ",")
-
-	for _, domain := range domainsToRegister {
-		err := destroyDNS(c, domain, hc)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		err = createDNS(c, domain, hc)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
 }
