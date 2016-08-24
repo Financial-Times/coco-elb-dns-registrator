@@ -1,2 +1,5 @@
-up-elb-dnsname-retriever
+.fitrc
 .idea
+*.iml
+coco-elb-dns-registrator
+*.exe
