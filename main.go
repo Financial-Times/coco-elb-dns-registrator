@@ -84,18 +84,15 @@ func main() {
 		for _, domain := range domainsToRegister {
 			currentCNAME, err := getCurrentCNAME(c, domain)
 			if err != nil {
-				log.Fatal(err)
+				log.Fatalf("ERROR - [%v]", err)
 			}
 			if currentCNAME == "" {
 				err = createDNS(c, elbCNAME, domain)
-				if err != nil {
-					log.Fatal(err)
-				}
 			} else {
 				err = updateDNS(c, currentCNAME, elbCNAME, domain)
-				if err != nil {
-					log.Fatal(err)
-				}
+			}
+			if err != nil {
+				log.Fatalf("ERROR - [%v]", err)
 			}
 		}
 	}
@@ -154,7 +151,7 @@ func getCurrentCNAME(c *conf, domain string) (string, error) {
 
 	response, err := httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("ERROR - Could not connect to Konstructor, [%v]", err)
+		return "", fmt.Errorf("Could not connect to Konstructor, [%v]", err)
 	}
 	defer func() {
 		io.Copy(ioutil.Discard, response.Body)
@@ -163,7 +160,7 @@ func getCurrentCNAME(c *conf, domain string) (string, error) {
 
 	data, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		return "", fmt.Errorf("ERROR - Could not read konstructor response body, statusCode=[%v], [%v]", response.StatusCode, err)
+		return "", fmt.Errorf("Could not read konstructor response body, statusCode=[%v], [%v]", response.StatusCode, err)
 	}
 	if response.StatusCode != http.StatusOK {
 		// if status is not 200, log it, it means domain does not exist
@@ -189,28 +186,8 @@ func createDNS(c *conf, elbCNAME string, domain string) error {
 	if err != nil {
 		return err
 	}
-
-	req.Header.Add("Content-Type", "application/json")
-	req.Header.Add("Accept", "application/json")
-	req.Header.Add("x-api-key", c.konsAPIKey)
-
-	response, err := httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("ERROR - Could not connect to Konstructor, [%v]", err)
-	}
-	defer func() {
-		io.Copy(ioutil.Discard, response.Body)
-		response.Body.Close()
-	}()
-
-	if response.StatusCode != http.StatusOK {
-		// if status is not 200, log it, but do not consider it as a service failure
-		data, err := ioutil.ReadAll(response.Body)
-		message := "Response message could not be obtained"
-		if err == nil {
-			message = string(data)
-		}
-		return fmt.Errorf("ERROR - Creating domain=[%v] failed, statusCode=[%v], message=[%v]", domain, response.StatusCode, message)
+	if err = executeReq(req, c.konsAPIKey); err != nil {
+		return fmt.Errorf("Creating domain=[%v] failed, %v", domain, err)
 	}
 	return nil
 }
@@ -221,14 +198,20 @@ func updateDNS(c *conf, oldCname string, newCname, domain string) error {
 	if err != nil {
 		return err
 	}
+	if err = executeReq(req, c.konsAPIKey); err != nil {
+		return fmt.Errorf("Updating domain=[%v] failed, %v", domain, err)
+	}
+	return nil
+}
 
+func executeReq(req *http.Request, key string) error {
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Accept", "application/json")
-	req.Header.Add("x-api-key", c.konsAPIKey)
+	req.Header.Add("x-api-key", key)
 
 	response, err := httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("ERROR - Could not connect to Konstructor, [%v]", err)
+		return fmt.Errorf("Could not connect to Konstructor, [%v]", err)
 	}
 	defer func() {
 		io.Copy(ioutil.Discard, response.Body)
@@ -242,7 +225,7 @@ func updateDNS(c *conf, oldCname string, newCname, domain string) error {
 		if err == nil {
 			message = string(data)
 		}
-		return fmt.Errorf("ERROR - Updating domain=[%v] failed, statusCode=[%v], message=[%v]", domain, response.StatusCode, message)
+		return fmt.Errorf("statusCode=[%v], message=[%v]", response.StatusCode, message)
 	}
 	return nil
 }
