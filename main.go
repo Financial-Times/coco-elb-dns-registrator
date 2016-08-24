@@ -1,12 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/elb"
 	"github.com/jawher/mow.cli"
+	"io"
 	"io/ioutil"
 	"log"
 	"net"
@@ -16,6 +18,16 @@ import (
 	"time"
 )
 
+var httpClient = http.Client{
+	Transport: &http.Transport{
+		MaxIdleConnsPerHost: 128,
+		Dial: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).Dial,
+	},
+}
+
 func main() {
 	app := cli.App("elb dns registrator", "Registers elb cname to *-up.ft.com cnames in dyn using konstructor")
 
@@ -24,13 +36,13 @@ func main() {
 		Desc:   "comma separated *-up domains",
 		EnvVar: "DOMAINS",
 	})
-	konstructorBaseUrl := app.String(cli.StringOpt{
+	konstructorBaseURL := app.String(cli.StringOpt{
 		Name:   "konstructor-base-url",
 		Desc:   "konstructor base url: https://dns-api.in.ft.com/v2",
 		EnvVar: "KONSTRUCTOR_BASE_URL",
 		Value:  "https://dns-api.in.ft.com/v2",
 	})
-	konstructorApiKey := app.String(cli.StringOpt{
+	konstructorAPIKey := app.String(cli.StringOpt{
 		Name:   "konstructor-api-key",
 		Desc:   "konstructor api key",
 		EnvVar: "KONSTRUCTOR_API_KEY",
@@ -58,42 +70,39 @@ func main() {
 
 	app.Action = func() {
 		c := &conf{
-			konsAPIKey:      *konstructorApiKey,
-			konsDNSEndPoint: *konstructorBaseUrl,
+			konsAPIKey:      *konstructorAPIKey,
+			konsDNSEndPoint: *konstructorBaseURL,
 			elbName:         *elbName,
 			awsAccessKey:    *awsAccessKeyID,
 			awsSecretKey:    *awsSecretAccessKey,
 			awsRegion:       *awsRegion,
-		}
-		httpClient := &http.Client{
-			Transport: &http.Transport{
-				MaxIdleConnsPerHost: 128,
-				Dial: (&net.Dialer{
-					Timeout:   30 * time.Second,
-					KeepAlive: 30 * time.Second,
-				}).Dial,
-			},
 		}
 
 		elbCNAME := elbDNSName(c)
 		domainsToRegister := strings.Split(*domains, ",")
 
 		for _, domain := range domainsToRegister {
-			err := destroyDNS(c, domain, httpClient)
+			currentCNAME, err := getCurrentCNAME(c, domain)
 			if err != nil {
 				log.Fatal(err)
 			}
-
-			err = createDNS(c, elbCNAME, domain, httpClient)
-			if err != nil {
-				log.Fatal(err)
+			if currentCNAME == "" {
+				err = createDNS(c, elbCNAME, domain)
+				if err != nil {
+					log.Fatal(err)
+				}
+			} else {
+				err = updateDNS(c, currentCNAME, elbCNAME, domain)
+				if err != nil {
+					log.Fatal(err)
+				}
 			}
 		}
 	}
 
 	err := app.Run(os.Args)
 	if err != nil {
-		log.Fatalf("[%v]", err)
+		log.Fatalf("ERROR - [%v]", err)
 	}
 }
 
@@ -135,37 +144,80 @@ func elbDNSName(c *conf) string {
 	return *resp.LoadBalancerDescriptions[0].DNSName
 }
 
-func destroyDNS(c *conf, domain string, hc *http.Client) error {
-	body := fmt.Sprintf("{\"zone\": \"ft.com\", \"name\": \"%s\"}", domain)
-	req, err := http.NewRequest("DELETE", c.konsDNSEndPoint, strings.NewReader(body))
+func getCurrentCNAME(c *conf, domain string) (string, error) {
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/name/ft.com/%s", c.konsDNSEndPoint, domain), nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("x-api-key", c.konsAPIKey)
+
+	response, err := httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("ERROR - Could not connect to Konstructor, [%v]", err)
+	}
+	defer func() {
+		io.Copy(ioutil.Discard, response.Body)
+		response.Body.Close()
+	}()
+
+	data, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		return "", fmt.Errorf("ERROR - Could not read konstructor response body, statusCode=[%v], [%v]", response.StatusCode, err)
+	}
+	if response.StatusCode != http.StatusOK {
+		// if status is not 200, log it, it means domain does not exist
+		log.Printf("INFO - Domain=[%v] not created, statusCode=[%v], message=[%v]", domain, response.StatusCode, string(data))
+		return "", nil
+	}
+
+	type konstructorRes struct {
+		CNAMES []string `json:"records"`
+	}
+	r := konstructorRes{}
+	if err := json.Unmarshal(data, &r); err != nil {
+		return "", err
+	}
+
+	//remove trailing "." otherwise update method complains
+	return strings.TrimSuffix(r.CNAMES[0], "."), nil
+}
+
+func createDNS(c *conf, elbCNAME string, domain string) error {
+	body := fmt.Sprintf("{\"zone\": \"ft.com\", \"name\": \"%s\",\"rdata\": \"%s\",\"ttl\": \"600\"}", domain, elbCNAME)
+	req, err := http.NewRequest(http.MethodPost, c.konsDNSEndPoint, strings.NewReader(body))
 	if err != nil {
 		return err
 	}
+
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("x-api-key", c.konsAPIKey)
 
-	response, err := hc.Do(req)
+	response, err := httpClient.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("ERROR - Could not connect to Konstructor, [%v]", err)
 	}
-	defer response.Body.Close()
+	defer func() {
+		io.Copy(ioutil.Discard, response.Body)
+		response.Body.Close()
+	}()
 
-	if response.StatusCode != 200 {
+	if response.StatusCode != http.StatusOK {
 		// if status is not 200, log it, but do not consider it as a service failure
 		data, err := ioutil.ReadAll(response.Body)
 		message := "Response message could not be obtained"
 		if err == nil {
 			message = string(data)
 		}
-		log.Printf("Destroying domain [%v] failed. Response status: [%v], message: [%v]", domain, response.StatusCode, message)
+		return fmt.Errorf("ERROR - Creating domain=[%v] failed, statusCode=[%v], message=[%v]", domain, response.StatusCode, message)
 	}
 	return nil
 }
 
-func createDNS(c *conf, elbCNAME string, domain string, hc *http.Client) error {
-	body := fmt.Sprintf("{\"zone\": \"ft.com\", \"name\": \"%s\",\"rdata\": \"%s\",\"ttl\": \"600\"}", domain, elbCNAME)
-	req, err := http.NewRequest("POST", c.konsDNSEndPoint, strings.NewReader(body))
+func updateDNS(c *conf, oldCname string, newCname, domain string) error {
+	body := fmt.Sprintf("{\"zone\": \"ft.com\", \"name\": \"%s\",\"oldRdata\": \"%s\",\"newRdata\": \"%s\",\"ttl\": \"600\"}", domain, oldCname, newCname)
+	req, err := http.NewRequest(http.MethodPut, c.konsDNSEndPoint, strings.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -174,20 +226,23 @@ func createDNS(c *conf, elbCNAME string, domain string, hc *http.Client) error {
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("x-api-key", c.konsAPIKey)
 
-	response, err := hc.Do(req)
+	response, err := httpClient.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("ERROR - Could not connect to Konstructor, [%v]", err)
 	}
-	defer response.Body.Close()
+	defer func() {
+		io.Copy(ioutil.Discard, response.Body)
+		response.Body.Close()
+	}()
 
-	if response.StatusCode != 200 {
+	if response.StatusCode != http.StatusOK {
 		// if status is not 200, log it, but do not consider it as a service failure
 		data, err := ioutil.ReadAll(response.Body)
 		message := "Response message could not be obtained"
 		if err == nil {
 			message = string(data)
 		}
-		log.Printf("Creating domain [%v] failed. Response status: [%v], message: [%v]", domain, response.StatusCode, message)
+		return fmt.Errorf("ERROR - Updating domain=[%v] failed, statusCode=[%v], message=[%v]", domain, response.StatusCode, message)
 	}
 	return nil
 }
