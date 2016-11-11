@@ -181,7 +181,7 @@ func getCurrentCNAME(c *conf, domain string) (string, error) {
 }
 
 func createDNS(c *conf, elbCNAME string, domain string) error {
-	body := fmt.Sprintf("{\"zone\": \"ft.com\", \"name\": \"%s\",\"rdata\": \"%s\",\"ttl\": \"30\",\"emailAddress\": \"euan.finlay@ft.com\"}", domain, elbCNAME)
+	body := fmt.Sprintf("{\"zone\": \"ft.com\", \"name\": \"%s\",\"rdata\": \"%s\",\"ttl\": \"30\",\"emailAddress\": \"universal.publishing.platform@ft.com\"}", domain, elbCNAME)
 	req, err := http.NewRequest(http.MethodPost, c.konsDNSEndPoint, strings.NewReader(body))
 	if err != nil {
 		return err
@@ -193,7 +193,7 @@ func createDNS(c *conf, elbCNAME string, domain string) error {
 }
 
 func updateDNS(c *conf, oldCname string, newCname, domain string) error {
-	body := fmt.Sprintf("{\"zone\": \"ft.com\", \"name\": \"%s\",\"oldRdata\": \"%s\",\"newRdata\": \"%s\",\"ttl\": \"30\",\"emailAddress\": \"euan.finlay@ft.com\"}", domain, oldCname, newCname)
+	body := fmt.Sprintf("{\"zone\": \"ft.com\", \"name\": \"%s\",\"oldRdata\": \"%s\",\"newRdata\": \"%s\",\"ttl\": \"30\",\"emailAddress\": \"universal.publishing.platform@ft.com\"}", domain, oldCname, newCname)
 	req, err := http.NewRequest(http.MethodPut, c.konsDNSEndPoint, strings.NewReader(body))
 	if err != nil {
 		return err
