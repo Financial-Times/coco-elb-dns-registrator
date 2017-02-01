@@ -16,6 +16,9 @@ import (
 	"os"
 	"strings"
 	"time"
+	"k8s.io/client-go/1.5/kubernetes"
+	"k8s.io/client-go/1.5/pkg/api"
+	"k8s.io/client-go/1.5/rest"
 )
 
 var httpClient = http.Client{
@@ -29,6 +32,25 @@ var httpClient = http.Client{
 }
 
 func main() {
+	// creates the in-cluster config
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		panic(err.Error())
+	}
+	// creates the clientset
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		panic(err.Error())
+	}
+	for {
+		pods, err := clientset.Core().Pods("").List(api.ListOptions{})
+		if err != nil {
+			panic(err.Error())
+		}
+		fmt.Printf("There are %d pods in the cluster\n", len(pods.Items))
+		time.Sleep(10 * time.Second)
+	}
+
 	app := cli.App("elb dns registrator", "Registers elb cname to *-up.ft.com cnames in dyn using konstructor")
 
 	domains := app.String(cli.StringOpt{
@@ -97,7 +119,7 @@ func main() {
 		}
 	}
 
-	err := app.Run(os.Args)
+	err = app.Run(os.Args)
 	if err != nil {
 		log.Fatalf("ERROR - [%v]", err)
 	}
