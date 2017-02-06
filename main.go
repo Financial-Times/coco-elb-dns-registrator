@@ -45,11 +45,6 @@ func main() {
 		Desc:   "konstructor api key",
 		EnvVar: "KONSTRUCTOR_API_KEY",
 	})
-	elbName := app.String(cli.StringOpt{
-		Name:   "elb-name",
-		Desc:   "elb cname",
-		EnvVar: "ELB_NAME",
-	})
 	awsRegion := app.String(cli.StringOpt{
 		Name:   "aws-region",
 		Desc:   "aws region",
@@ -72,15 +67,21 @@ func main() {
 		EnvVar: "K8S_LB_SERVICE",
 	})
 
+	kubeLBServiceNamespace := app.String(cli.StringOpt{
+		Name: "k8s-lb-service-namespace",
+		Desc: "The Kubernetes namespace of the service of type 'LoadBalancer' that we should register the ELB for",
+		EnvVar: "K8S_LB_SERVICE_NAMESPACE",
+	})
+
 	app.Action = func() {
 		conf := &conf{
 			konsAPIKey:      *konstructorAPIKey,
 			konsDNSEndPoint: *konstructorBaseURL,
-			elbName:         *elbName,
 			awsAccessKey:    *awsAccessKeyID,
 			awsSecretKey:    *awsSecretAccessKey,
 			awsRegion:       *awsRegion,
 			kubeLbService:   *kubeLbService,
+			kubeLbServiceNamespace: *kubeLBServiceNamespace,
 		}
 
 		elbCNAME := getKubeElbDnsCname(conf)
@@ -120,7 +121,7 @@ func getKubeElbDnsCname(conf *conf) string {
 		log.Fatalf("ERROR - Could not get the client for K8s: [%v]", err)
 	}
 
-	lbService, err := clientset.Core().Services("").Get(conf.kubeLbService)
+	lbService, err := clientset.Core().Services(conf.kubeLbServiceNamespace).Get(conf.kubeLbService)
 	if err != nil {
 		log.Fatalf("ERROR - Could not get the K8S LB service '%s'. Reason: [%v]", conf.kubeLbService, err)
 	}
@@ -133,15 +134,15 @@ func getKubeElbDnsCname(conf *conf) string {
 }
 
 type conf struct {
-	konsAPIKey      string
-	konsDNSEndPoint string
-	elbName         string
-	awsAccessKey    string
-	awsSecretKey    string
-	awsRegion       string
-	kubeLbService   string
+	konsAPIKey             string
+	konsDNSEndPoint        string
+	elbName                string
+	awsAccessKey           string
+	awsSecretKey           string
+	awsRegion              string
+	kubeLbService          string
+	kubeLbServiceNamespace string
 }
-
 
 func getCurrentCNAME(c *conf, domain string) (string, error) {
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/name/ft.com/%s", c.konsDNSEndPoint, domain), nil)
