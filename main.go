@@ -69,7 +69,7 @@ func main() {
 	kubeLbService := app.String(cli.StringOpt{
 		Name: "k8s-lb-service",
 		Desc: "The Kubernetes service of type 'LoadBalancer' that we should register the ELB for",
-		EnvVar: "K8S-LB-SERVICE",
+		EnvVar: "K8S_LB_SERVICE",
 	})
 
 	app.Action = func() {
