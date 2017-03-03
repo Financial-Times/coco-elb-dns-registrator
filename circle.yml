@@ -1,0 +1,4 @@
+dependencies:
+  pre:
+    - go get -u github.com/kardianos/govendor
+    - $GOPATH/bin/govendor sync
