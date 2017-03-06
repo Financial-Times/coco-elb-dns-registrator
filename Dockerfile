@@ -17,7 +17,7 @@ RUN apk --no-cache --virtual .build-dependencies add git \
   && BUILDER="builder=$(go version)" \
   && LDFLAGS="-X '"${BUILDINFO_PACKAGE}$VERSION"' -X '"${BUILDINFO_PACKAGE}$DATETIME"' -X '"${BUILDINFO_PACKAGE}$REPOSITORY"' -X '"${BUILDINFO_PACKAGE}$REVISION"' -X '"${BUILDINFO_PACKAGE}$BUILDER"'" \
   && echo "Build flags: $LDFLAGS" \
-  && echo "Starging fetching the vendoring deps ... " \
+  && echo "Starting fetching the vendoring deps ... " \
   && go get -u github.com/kardianos/govendor \
   && $GOPATH/bin/govendor sync \
   && go get \
