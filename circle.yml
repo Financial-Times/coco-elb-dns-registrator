@@ -14,7 +14,8 @@ dependencies:
   override:
     - cd ${GO_PROJECT_PATH} && govendor sync
     # get all the other dependencies that are not vendored
-    - cd ${GO_PROJECT_PATH} && go get
+    - cd ${GO_PROJECT_PATH} && go get -t -v -d ./...
+    - cd ${GO_PROJECT_PATH} && go build -v
 
 test:
   override:
