@@ -3,10 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/elb"
 	"github.com/jawher/mow.cli"
 	"io"
 	"io/ioutil"
@@ -16,6 +12,8 @@ import (
 	"os"
 	"strings"
 	"time"
+	"k8s.io/client-go/1.5/kubernetes"
+	"k8s.io/client-go/1.5/rest"
 )
 
 var httpClient = http.Client{
@@ -47,11 +45,6 @@ func main() {
 		Desc:   "konstructor api key",
 		EnvVar: "KONSTRUCTOR_API_KEY",
 	})
-	elbName := app.String(cli.StringOpt{
-		Name:   "elb-name",
-		Desc:   "elb cname",
-		EnvVar: "ELB_NAME",
-	})
 	awsRegion := app.String(cli.StringOpt{
 		Name:   "aws-region",
 		Desc:   "aws region",
@@ -68,28 +61,41 @@ func main() {
 		EnvVar: "AWS_SECRET_ACCESS_KEY",
 	})
 
+	kubeLbService := app.String(cli.StringOpt{
+		Name: "k8s-lb-service",
+		Desc: "The Kubernetes service of type 'LoadBalancer' that we should register the ELB for",
+		EnvVar: "K8S_LB_SERVICE",
+	})
+
+	kubeLBServiceNamespace := app.String(cli.StringOpt{
+		Name: "k8s-lb-service-namespace",
+		Desc: "The Kubernetes namespace of the service of type 'LoadBalancer' that we should register the ELB for",
+		EnvVar: "K8S_LB_SERVICE_NAMESPACE",
+	})
+
 	app.Action = func() {
-		c := &conf{
+		conf := &conf{
 			konsAPIKey:      *konstructorAPIKey,
 			konsDNSEndPoint: *konstructorBaseURL,
-			elbName:         *elbName,
 			awsAccessKey:    *awsAccessKeyID,
 			awsSecretKey:    *awsSecretAccessKey,
 			awsRegion:       *awsRegion,
+			kubeLbService:   *kubeLbService,
+			kubeLbServiceNamespace: *kubeLBServiceNamespace,
 		}
 
-		elbCNAME := elbDNSName(c)
+		elbCNAME := getKubeElbDnsCname(conf)
 		domainsToRegister := strings.Split(*domains, ",")
 
 		for _, domain := range domainsToRegister {
-			currentCNAME, err := getCurrentCNAME(c, domain)
+			currentCNAME, err := getCurrentCNAME(conf, domain)
 			if err != nil {
 				log.Fatalf("ERROR - [%v]", err)
 			}
 			if currentCNAME == "" {
-				err = createDNS(c, elbCNAME, domain)
+				err = createDNS(conf, elbCNAME, domain)
 			} else {
-				err = updateDNS(c, currentCNAME, elbCNAME, domain)
+				err = updateDNS(conf, currentCNAME, elbCNAME, domain)
 			}
 			if err != nil {
 				log.Fatalf("ERROR - [%v]", err)
@@ -103,42 +109,39 @@ func main() {
 	}
 }
 
-type conf struct {
-	konsAPIKey      string
-	konsDNSEndPoint string
-	elbName         string
-	awsAccessKey    string
-	awsSecretKey    string
-	awsRegion       string
+func getKubeElbDnsCname(conf *conf) string {
+	// creates the in-cluster config
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		log.Fatalf("ERROR - Could not get the K8s cluster config: [%v]", err)
+	}
+	// creates the clientset
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		log.Fatalf("ERROR - Could not get the client for K8s: [%v]", err)
+	}
+
+	lbService, err := clientset.Core().Services(conf.kubeLbServiceNamespace).Get(conf.kubeLbService)
+	if err != nil {
+		log.Fatalf("ERROR - Could not get the K8S LB service '%s'. Reason: [%v]", conf.kubeLbService, err)
+	}
+
+	if (len(lbService.Status.LoadBalancer.Ingress) == 0) {
+		log.Fatalf("ERROR - No ingress address found for LB service '%s'", conf.kubeLbService)
+	}
+
+	return lbService.Status.LoadBalancer.Ingress[0].Hostname
 }
 
-func elbDNSName(c *conf) string {
-	//weirdness around how aws handles credentials
-	os.Setenv("AWS_ACCESS_KEY_ID", c.awsAccessKey)
-	os.Setenv("AWS_SECRET_ACCESS_KEY", c.awsSecretKey)
-
-	svc := elb.New(
-		session.New(
-			&aws.Config{
-				Region:      aws.String(c.awsRegion),
-				Credentials: credentials.NewEnvCredentials(),
-			},
-		),
-	)
-
-	params := &elb.DescribeLoadBalancersInput{
-		LoadBalancerNames: []*string{
-			aws.String(c.elbName), // Required
-		},
-	}
-
-	resp, err := svc.DescribeLoadBalancers(params)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return *resp.LoadBalancerDescriptions[0].DNSName
+type conf struct {
+	konsAPIKey             string
+	konsDNSEndPoint        string
+	elbName                string
+	awsAccessKey           string
+	awsSecretKey           string
+	awsRegion              string
+	kubeLbService          string
+	kubeLbServiceNamespace string
 }
 
 func getCurrentCNAME(c *conf, domain string) (string, error) {
