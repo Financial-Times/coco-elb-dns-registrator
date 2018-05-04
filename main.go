@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/jawher/mow.cli"
 	"io"
 	"io/ioutil"
 	"log"
@@ -12,6 +11,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/jawher/mow.cli"
 	"k8s.io/client-go/1.5/kubernetes"
 	"k8s.io/client-go/1.5/rest"
 )
@@ -62,25 +63,25 @@ func main() {
 	})
 
 	kubeLbService := app.String(cli.StringOpt{
-		Name: "k8s-lb-service",
-		Desc: "The Kubernetes service of type 'LoadBalancer' that we should register the ELB for",
+		Name:   "k8s-lb-service",
+		Desc:   "The Kubernetes service of type 'LoadBalancer' that we should register the ELB for",
 		EnvVar: "K8S_LB_SERVICE",
 	})
 
 	kubeLBServiceNamespace := app.String(cli.StringOpt{
-		Name: "k8s-lb-service-namespace",
-		Desc: "The Kubernetes namespace of the service of type 'LoadBalancer' that we should register the ELB for",
+		Name:   "k8s-lb-service-namespace",
+		Desc:   "The Kubernetes namespace of the service of type 'LoadBalancer' that we should register the ELB for",
 		EnvVar: "K8S_LB_SERVICE_NAMESPACE",
 	})
 
 	app.Action = func() {
 		conf := &conf{
-			konsAPIKey:      *konstructorAPIKey,
-			konsDNSEndPoint: *konstructorBaseURL,
-			awsAccessKey:    *awsAccessKeyID,
-			awsSecretKey:    *awsSecretAccessKey,
-			awsRegion:       *awsRegion,
-			kubeLbService:   *kubeLbService,
+			konsAPIKey:             *konstructorAPIKey,
+			konsDNSEndPoint:        *konstructorBaseURL,
+			awsAccessKey:           *awsAccessKeyID,
+			awsSecretKey:           *awsSecretAccessKey,
+			awsRegion:              *awsRegion,
+			kubeLbService:          *kubeLbService,
 			kubeLbServiceNamespace: *kubeLBServiceNamespace,
 		}
 
@@ -126,7 +127,7 @@ func getKubeElbDnsCname(conf *conf) string {
 		log.Fatalf("ERROR - Could not get the K8S LB service '%s'. Reason: [%v]", conf.kubeLbService, err)
 	}
 
-	if (len(lbService.Status.LoadBalancer.Ingress) == 0) {
+	if len(lbService.Status.LoadBalancer.Ingress) == 0 {
 		log.Fatalf("ERROR - No ingress address found for LB service '%s'", conf.kubeLbService)
 	}
 

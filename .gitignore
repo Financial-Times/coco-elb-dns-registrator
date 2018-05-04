@@ -2,5 +2,5 @@
 .idea
 *.iml
 coco-elb-dns-registrator
-vendor/*/
+vendor/
 *.exe
