@@ -120,9 +120,6 @@ type conf struct {
 	konsAPIKey             string
 	konsDNSEndPoint        string
 	elbName                string
-	awsAccessKey           string
-	awsSecretKey           string
-	awsRegion              string
 	kubeLbService          string
 	kubeLbServiceNamespace string
 }
