@@ -16,10 +16,7 @@ How to Build & Run the binary
 
 2. Run:
 
-        export AWS_SECRET_ACCESS_KEY="***" \
-            && export AWS_ACCESS_KEY_ID="***" \
-            && export AWS_REGION="eu-west-1" \
-            && export ELB_NAME="coreos-up-176d2040" \
+        export ELB_NAME="coreos-up-176d2040" \
             && export DOMAINS="xp-up,xp-read-up" \
             && export KONSTRUCTOR_BASE_URL="https://dns-api.in.ft.com/v2" \
             && export KONSTRUCTOR_API_KEY="***" \

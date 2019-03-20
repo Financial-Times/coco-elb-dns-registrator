@@ -46,21 +46,6 @@ func main() {
 		Desc:   "konstructor api key",
 		EnvVar: "KONSTRUCTOR_API_KEY",
 	})
-	awsRegion := app.String(cli.StringOpt{
-		Name:   "aws-region",
-		Desc:   "aws region",
-		EnvVar: "AWS_REGION",
-	})
-	awsAccessKeyID := app.String(cli.StringOpt{
-		Name:   "aws_access_key_id",
-		Desc:   "aws access key id",
-		EnvVar: "AWS_ACCESS_KEY_ID",
-	})
-	awsSecretAccessKey := app.String(cli.StringOpt{
-		Name:   "aws_secret_access_key",
-		Desc:   "aws secret access key",
-		EnvVar: "AWS_SECRET_ACCESS_KEY",
-	})
 
 	kubeLbService := app.String(cli.StringOpt{
 		Name:   "k8s-lb-service",
@@ -78,9 +63,6 @@ func main() {
 		conf := &conf{
 			konsAPIKey:             *konstructorAPIKey,
 			konsDNSEndPoint:        *konstructorBaseURL,
-			awsAccessKey:           *awsAccessKeyID,
-			awsSecretKey:           *awsSecretAccessKey,
-			awsRegion:              *awsRegion,
 			kubeLbService:          *kubeLbService,
 			kubeLbServiceNamespace: *kubeLBServiceNamespace,
 		}
@@ -138,9 +120,6 @@ type conf struct {
 	konsAPIKey             string
 	konsDNSEndPoint        string
 	elbName                string
-	awsAccessKey           string
-	awsSecretKey           string
-	awsRegion              string
 	kubeLbService          string
 	kubeLbServiceNamespace string
 }
