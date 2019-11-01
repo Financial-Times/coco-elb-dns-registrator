@@ -4,3 +4,4 @@
 coco-elb-dns-registrator
 vendor/
 *.exe
+.vscode

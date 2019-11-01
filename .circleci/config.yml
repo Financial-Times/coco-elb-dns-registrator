@@ -1,25 +1,26 @@
 version: 2
 jobs:
   build:
-    working_directory: /go/src/github.com/Financial-Times/coco-elb-dns-registrator
+    working_directory: /coco-elb-dns-registrator
     docker:
-      - image: circleci/golang:1.10
+      - image: golang:1
     steps:
       - checkout
       - run:
           name: External dependencies
           command: |
-            curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
-      - run:
-          name: Download vendored dependencies
-          command: dep ensure -v -vendor-only
+            curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.18.0
+            wget https://raw.githubusercontent.com/Financial-Times/upp-coding-standard/v1.0.0/golangci-config/.golangci.yml
       - run:
           name: Go build
-          command: go build -v
-  dockerfile:
+          command: go build -mod=readonly -v
+      - run:
+          name: Run Linters
+          command: golangci-lint run --config=.golangci.yml --new-from-rev=master
+  docker_build:
     working_directory: /coco-elb-dns-registrator
     docker:
-      - image: docker:18.03
+      - image: docker:18
     steps:
       - checkout
       - setup_docker_engine
@@ -31,6 +32,6 @@ workflows:
   test-and-build-docker:
     jobs:
       - build
-      - dockerfile:
+      - docker_build:
           requires:
             - build

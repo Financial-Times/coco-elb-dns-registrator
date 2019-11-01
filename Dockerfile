@@ -1,16 +1,14 @@
-FROM golang:1.10-alpine
+FROM golang:1
 
 ENV PROJECT=coco-elb-dns-registrator
-COPY . /${PROJECT}-sources/
 
-RUN apk --no-cache --virtual .build-dependencies add git curl \
-  && ORG_PATH="github.com/Financial-Times" \
-  && REPO_PATH="${ORG_PATH}/${PROJECT}" \
-  && mkdir -p $GOPATH/src/${ORG_PATH} \
-  # Linking the project sources in the GOPATH folder
-  && ln -s /${PROJECT}-sources $GOPATH/src/${REPO_PATH} \
-  && cd $GOPATH/src/${REPO_PATH} \
-  && BUILDINFO_PACKAGE="${ORG_PATH}/${PROJECT}/vendor/${ORG_PATH}/service-status-go/buildinfo." \
+ENV ORG_PATH="github.com/Financial-Times"
+ENV SRC_FOLDER="${GOPATH}/src/${ORG_PATH}/${PROJECT}"
+
+COPY . ${SRC_FOLDER}
+WORKDIR ${SRC_FOLDER}
+  
+RUN BUILDINFO_PACKAGE="${ORG_PATH}/service-status-go/buildinfo." \
   && VERSION="version=$(git describe --tag --always 2> /dev/null)" \
   && DATETIME="dateTime=$(date -u +%Y%m%d%H%M%S)" \
   && REPOSITORY="repository=$(git config --get remote.origin.url)" \
@@ -18,13 +16,9 @@ RUN apk --no-cache --virtual .build-dependencies add git curl \
   && BUILDER="builder=$(go version)" \
   && LDFLAGS="-X '"${BUILDINFO_PACKAGE}$VERSION"' -X '"${BUILDINFO_PACKAGE}$DATETIME"' -X '"${BUILDINFO_PACKAGE}$REPOSITORY"' -X '"${BUILDINFO_PACKAGE}$REVISION"' -X '"${BUILDINFO_PACKAGE}$BUILDER"'" \
   && echo "Build flags: $LDFLAGS" \
-  && echo "Fetching dependencies..." \
-  && curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh \
-  && $GOPATH/bin/dep ensure -vendor-only \
-  && CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags="${LDFLAGS}" \
-  && mv ${PROJECT} /${PROJECT} \
-  && apk del .build-dependencies \
-  && rm -rf $GOPATH /var/cache/apk/*
+  && CGO_ENABLED=0 go build -mod=readonly -o /artifacts/${PROJECT} -v -ldflags="${LDFLAGS}" 
+
+RUN mv /artifacts/* /
 
 WORKDIR /
 
