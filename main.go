@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jawher/mow.cli"
+	cli "github.com/jawher/mow.cli"
 	"k8s.io/client-go/1.5/kubernetes"
 	"k8s.io/client-go/1.5/rest"
 )
@@ -30,6 +30,12 @@ var httpClient = http.Client{
 func main() {
 	app := cli.App("elb dns registrator", "Registers elb cname to *-up.ft.com cnames in dyn using konstructor")
 
+	domainZone := app.String(cli.StringOpt{
+		Name:   "domainZone",
+		Desc:   "*-up domain zone",
+		EnvVar: "DomainZone",
+		Value:  "ft.com",
+	})
 	domains := app.String(cli.StringOpt{
 		Name:   "domains",
 		Desc:   "comma separated *-up domains",
@@ -67,7 +73,7 @@ func main() {
 			kubeLbServiceNamespace: *kubeLBServiceNamespace,
 		}
 
-		elbCNAME := getKubeElbDnsCname(conf)
+		elbCNAME := getKubeElbDNSCname(conf)
 		domainsToRegister := strings.Split(*domains, ",")
 
 		for _, domain := range domainsToRegister {
@@ -76,9 +82,9 @@ func main() {
 				log.Fatalf("ERROR - [%v]", err)
 			}
 			if currentCNAME == "" {
-				err = createDNS(conf, elbCNAME, domain)
+				err = createDNS(conf, elbCNAME, domain, *domainZone)
 			} else {
-				err = updateDNS(conf, currentCNAME, elbCNAME, domain)
+				err = updateDNS(conf, currentCNAME, elbCNAME, domain, *domainZone)
 			}
 			if err != nil {
 				log.Fatalf("ERROR - [%v]", err)
@@ -92,7 +98,7 @@ func main() {
 	}
 }
 
-func getKubeElbDnsCname(conf *conf) string {
+func getKubeElbDNSCname(conf *conf) string {
 	// creates the in-cluster config
 	config, err := rest.InClusterConfig()
 	if err != nil {
@@ -163,8 +169,8 @@ func getCurrentCNAME(c *conf, domain string) (string, error) {
 	return strings.TrimSuffix(r.CNAMES[0], "."), nil
 }
 
-func createDNS(c *conf, elbCNAME string, domain string) error {
-	body := fmt.Sprintf("{\"zone\": \"ft.com\", \"name\": \"%s\",\"rdata\": \"%s\",\"ttl\": \"30\",\"emailAddress\": \"universal.publishing.platform@ft.com\"}", domain, elbCNAME)
+func createDNS(c *conf, elbCNAME string, domain string, domainZone string) error {
+	body := fmt.Sprintf("{\"zone\": \"%s\", \"name\": \"%s\",\"rdata\": \"%s\",\"ttl\": \"30\",\"emailAddress\": \"universal.publishing.platform@ft.com\"}", domainZone, domain, elbCNAME)
 	req, err := http.NewRequest(http.MethodPost, c.konsDNSEndPoint, strings.NewReader(body))
 	if err != nil {
 		return err
@@ -175,8 +181,8 @@ func createDNS(c *conf, elbCNAME string, domain string) error {
 	return nil
 }
 
-func updateDNS(c *conf, oldCname string, newCname, domain string) error {
-	body := fmt.Sprintf("{\"zone\": \"ft.com\", \"name\": \"%s\",\"oldRdata\": \"%s\",\"newRdata\": \"%s\",\"ttl\": \"30\",\"emailAddress\": \"universal.publishing.platform@ft.com\"}", domain, oldCname, newCname)
+func updateDNS(c *conf, oldCname string, newCname, domain string, domainZone string) error {
+	body := fmt.Sprintf("{\"zone\": \"%s\", \"name\": \"%s\",\"oldRdata\": \"%s\",\"newRdata\": \"%s\",\"ttl\": \"30\",\"emailAddress\": \"universal.publishing.platform@ft.com\"}", domainZone, domain, oldCname, newCname)
 	req, err := http.NewRequest(http.MethodPut, c.konsDNSEndPoint, strings.NewReader(body))
 	if err != nil {
 		return err
