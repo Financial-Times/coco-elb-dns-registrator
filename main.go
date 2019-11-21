@@ -77,7 +77,7 @@ func main() {
 		domainsToRegister := strings.Split(*domains, ",")
 
 		for _, domain := range domainsToRegister {
-			currentCNAME, err := getCurrentCNAME(conf, domain)
+			currentCNAME, err := getCurrentCNAME(conf, *domainZone, domain)
 			if err != nil {
 				log.Fatalf("ERROR - [%v]", err)
 			}
@@ -130,8 +130,8 @@ type conf struct {
 	kubeLbServiceNamespace string
 }
 
-func getCurrentCNAME(c *conf, domain string) (string, error) {
-	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/name/ft.com/%s", c.konsDNSEndPoint, domain), nil)
+func getCurrentCNAME(c *conf, domainZone, domain string) (string, error) {
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/name/%s/%s", c.konsDNSEndPoint, domainZone, domain), nil)
 	if err != nil {
 		return "", err
 	}
